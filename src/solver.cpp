@@ -341,7 +341,7 @@ struct Solver {
 
     Solver(const Input& input) : input(input) {}
 
-    pii compute_score(const Output& out) const {
+    int compute_raw_score(const Output& out) const {
         int tiles[N][N];
         memcpy(tiles, input.T, sizeof(int) * N * N);
         for (int i = 0; i < N; i++) {
@@ -351,7 +351,47 @@ struct Solver {
                 }
             }
         }
-        int fragment_score = 0;
+        vector<int> ls;
+        bool used[N][N][4] = {};
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < N; j++) {
+                for (int d = 0; d < 4; d++) {
+                    if (TO[tiles[i][j]][d] != -1 && !used[i][j][d]) {
+                        int i2 = i, j2 = j, d2 = d, length = 0;
+                        while (!used[i2][j2][d2]) {
+                            if (TO[tiles[i2][j2]][d2] == -1) break;
+                            length++;
+                            used[i2][j2][d2] = true;
+                            d2 = TO[tiles[i2][j2]][d2];
+                            used[i2][j2][d2] = true;
+                            i2 += di[d2];
+                            j2 += dj[d2];
+                            if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) break;
+                            d2 = (d2 + 2) & 3;
+                        }
+                        if (i == i2 && j == j2 && d == d2) {
+                            ls.push_back(length);
+                        }
+                    }
+                }
+            }
+        }
+        if (ls.size() <= 1) return 0;
+        sort(ls.rbegin(), ls.rend());
+        return ls[0] * ls[1];
+    }
+
+    pair<int, double> compute_score(const Output& out) const {
+        int tiles[N][N];
+        memcpy(tiles, input.T, sizeof(int) * N * N);
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < N; j++) {
+                for (int k = 0; k < out.R[i][j]; k++) {
+                    tiles[i][j] = ROTATE[tiles[i][j]];
+                }
+            }
+        }
+        double fragment_score = 0;
         vector<int> ls;
         bool used[N][N][4] = {};
         for (int i = 0; i < N; i++) {
@@ -374,6 +414,7 @@ struct Solver {
                             ls.push_back(length);
                         }
                         else {
+                            int dist = abs(i - i2) + abs(j - j2);
                             fragment_score += length * length;
                         }
                     }
@@ -387,18 +428,38 @@ struct Solver {
 
     std::pair<double, string> solve() {
 
+        constexpr int coeff = 100;
+
         auto [prev_score, prev_frag] = compute_score(output);
+        int best_score = prev_score;
+        Output best_out = output;
+
+        auto get_temp = [](double startTemp, double endTemp, double t, double T) {
+            return endTemp + (startTemp - endTemp) * (T - t) / T;
+        };
+
         int loop = 0;
-        while (timer.elapsed_ms() < 1900) {
+        double start_time = timer.elapsed_ms(), now_time, end_time = 1900;
+        while ((now_time = timer.elapsed_ms()) < end_time) {
             int i = rnd.next_int(N), j = rnd.next_int(N), r = rnd.next_int(4);
             if (output.R[i][j] == r) continue;
             int pr = output.R[i][j];
             output.R[i][j] = r;
             auto [score, frag] = compute_score(output);
-            if (prev_score * 100 + prev_frag < score * 100 + frag) {
-                //dump(score, frag);
+
+            double diff = (score * coeff + frag) - (prev_score * coeff + prev_frag);
+            double temp = get_temp(50.0, 0.0, now_time - start_time, end_time - start_time);
+            double prob = exp(diff / temp);
+
+            //if (prev_score * 100 + prev_frag < score * 100 + frag) {
+            if (rnd.next_double() < prob) {
                 prev_score = score;
                 prev_frag = frag;
+                if (best_score < score) {
+                    best_score = score;
+                    best_out = output;
+                    //dump(best_score);
+                }
             }
             else {
                 output.R[i][j] = pr;
@@ -406,8 +467,8 @@ struct Solver {
             loop++;
         }
 
-
-        return { prev_score, output.stringify() };
+        output = best_out;
+        return { compute_raw_score(output), output.stringify()};
     }
 };
 
