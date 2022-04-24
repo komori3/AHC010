@@ -341,7 +341,7 @@ struct Solver {
 
     Solver(const Input& input) : input(input) {}
 
-    double compute_score(const Output& out) const {
+    pii compute_score(const Output& out) const {
         int tiles[N][N];
         memcpy(tiles, input.T, sizeof(int) * N * N);
         for (int i = 0; i < N; i++) {
@@ -351,6 +351,7 @@ struct Solver {
                 }
             }
         }
+        int fragment_score = 0;
         vector<int> ls;
         bool used[N][N][4] = {};
         for (int i = 0; i < N; i++) {
@@ -372,30 +373,39 @@ struct Solver {
                         if (i == i2 && j == j2 && d == d2) {
                             ls.push_back(length);
                         }
+                        else {
+                            fragment_score += length * length;
+                        }
                     }
                 }
             }
         }
-        if (ls.size() <= 1) return 0;
+        if (ls.size() <= 1) return { 0, fragment_score };
         sort(ls.rbegin(), ls.rend());
-        return ls[0] * ls[1];
+        return { ls[0] * ls[1], fragment_score };
     }
 
     std::pair<double, string> solve() {
 
-        int prev_score = compute_score(output);
+        auto [prev_score, prev_frag] = compute_score(output);
         int loop = 0;
         while (timer.elapsed_ms() < 1900) {
-            auto new_output = Output::generate_random(rnd);
-            int score = compute_score(new_output);
-            if (prev_score < score) {
-                dump(score);
+            int i = rnd.next_int(N), j = rnd.next_int(N), r = rnd.next_int(4);
+            if (output.R[i][j] == r) continue;
+            int pr = output.R[i][j];
+            output.R[i][j] = r;
+            auto [score, frag] = compute_score(output);
+            if (prev_score * 100 + prev_frag < score * 100 + frag) {
+                //dump(score, frag);
                 prev_score = score;
-                output = new_output;
+                prev_frag = frag;
+            }
+            else {
+                output.R[i][j] = pr;
             }
             loop++;
         }
-        dump(loop);
+
 
         return { prev_score, output.stringify() };
     }
@@ -407,7 +417,7 @@ void batch_test(int seed_begin = 0, int num_seed = 100) {
 
     constexpr int batch_size = 10;
     int seed_end = seed_begin + num_seed;
-    
+
     vector<double> scores(num_seed, 0.0);
     concurrency::critical_section mtx;
     for (int batch_begin = seed_begin; batch_begin < seed_end; batch_begin += batch_size) {
@@ -433,7 +443,7 @@ void batch_test(int seed_begin = 0, int num_seed = 100) {
             out << ans << endl;
             ifs.close();
             ofs.close();
-        });
+            });
     }
 
     dump(std::accumulate(scores.begin(), scores.end(), 0.0));
@@ -448,7 +458,7 @@ int main(int argc, char** argv) {
 
     c2d['L'] = 0; c2d['U'] = 1; c2d['R'] = 2; c2d['D'] = 3;
 
-#if 0
+#ifdef _MSC_VER
     //batch_test();
     batch_test(0, 100);
 #else
