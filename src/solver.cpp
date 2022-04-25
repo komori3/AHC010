@@ -2,6 +2,7 @@
 #include <bits/stdc++.h>
 #include <random>
 #include <unordered_set>
+#include <array>
 //#include <atcoder/all>
 //#include <boost/multiprecision/cpp_int.hpp>
 //#include <boost/multiprecision/cpp_bin_float.hpp>
@@ -214,6 +215,12 @@ const string d2c = "LURD";
 int c2d[256];
 
 constexpr int ROTATE[] = { 1,2,3,0,5,4,7,6 };
+constexpr int ROTATE2[4][8] = {
+    {0,1,2,3,4,5,6,7},
+    {1,2,3,0,5,4,7,6},
+    {2,3,0,1,4,5,6,7},
+    {3,0,1,2,5,4,7,6}
+};
 constexpr int TO[8][4] = {
     {1, 0, -1, -1},
     {3, -1, -1, 0},
@@ -297,9 +304,7 @@ double compute_score(const Input& in, const Output& out) {
     memcpy(tiles, in.T, sizeof(int) * N * N);
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            for (int k = 0; k < out.R[i][j]; k++) {
-                tiles[i][j] = ROTATE[tiles[i][j]];
-            }
+            tiles[i][j] = ROTATE2[out.R[i][j]][tiles[i][j]];
         }
     }
     vector<int> ls;
@@ -333,36 +338,89 @@ double compute_score(const Input& in, const Output& out) {
 }
 
 struct Solver {
+    using Array = array<array<int, N>, N>;
 
     Timer timer;
     Xorshift rnd;
-    Input input;
-    Output output;
+    Array T; // tile state (遷移で変更される)
+    Array R; // rotate number
 
-    Solver(const Input& input) : input(input) {}
+    map<int, int> cycle_map; // サイクル長を格納した map
+    int fragment_score2;
 
-    int compute_raw_score(const Output& out) const {
-        int tiles[N][N];
-        memcpy(tiles, input.T, sizeof(int) * N * N);
+    Solver(const Input& input) {
+        memcpy(T.data(), input.T, sizeof(int) * N * N);
+        memset(R.data(), 0, sizeof(int) * N * N);
+        fragment_score2 = 0;
+        initialize();
+    }
+
+    void initialize() {
+        // スコア計算
+        bool used[N][N][4] = {};
         for (int i = 0; i < N; i++) {
             for (int j = 0; j < N; j++) {
-                for (int k = 0; k < out.R[i][j]; k++) {
-                    tiles[i][j] = ROTATE[tiles[i][j]];
+                for (int d = 0; d < 4; d++) {
+                    if (TO[T[i][j]][d] == -1 || used[i][j][d]) continue; // 侵入済み
+                    int i2 = i, j2 = j, d2 = d, length = 0;
+                    bool cycle = true;
+                    while (!used[i2][j2][d2]) {
+                        if (TO[T[i2][j2]][d2] == -1) {
+                            cycle = false;
+                            break;
+                        }
+                        length++;
+                        used[i2][j2][d2] = true;
+                        d2 = TO[T[i2][j2]][d2];
+                        used[i2][j2][d2] = true;
+                        i2 += di[d2];
+                        j2 += dj[d2];
+                        if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) {
+                            cycle = false;
+                            break;
+                        }
+                        d2 = (d2 + 2) & 3;
+                    }
+                    if (cycle) {
+                        cycle_map[length]++;
+                    }
+                    else {
+                        // 逆方向の長さも調べる
+                        d2 = (d + 2) & 3; i2 = i - di[d2]; j2 = j - dj[d2];
+                        if (!(i2 < 0 || i2 >= N || j2 < 0 || j2 >= N)) {
+                            while (true) {
+                                if (TO[T[i2][j2]][d2] == -1) break;
+                                length++;
+                                used[i2][j2][d2] = true;
+                                d2 = TO[T[i2][j2]][d2];
+                                used[i2][j2][d2] = true;
+                                i2 += di[d2];
+                                j2 += dj[d2];
+                                if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) break;
+                                d2 = (d2 + 2) & 3;
+                            }
+                            fragment_score2 += length * length;
+                        }
+                    }
                 }
             }
         }
+        dump(cycle_map, fragment_score2);
+    }
+
+    int compute_raw_score() const {
         vector<int> ls;
         bool used[N][N][4] = {};
         for (int i = 0; i < N; i++) {
             for (int j = 0; j < N; j++) {
                 for (int d = 0; d < 4; d++) {
-                    if (TO[tiles[i][j]][d] != -1 && !used[i][j][d]) {
+                    if (TO[T[i][j]][d] != -1 && !used[i][j][d]) {
                         int i2 = i, j2 = j, d2 = d, length = 0;
                         while (!used[i2][j2][d2]) {
-                            if (TO[tiles[i2][j2]][d2] == -1) break;
+                            if (TO[T[i2][j2]][d2] == -1) break;
                             length++;
                             used[i2][j2][d2] = true;
-                            d2 = TO[tiles[i2][j2]][d2];
+                            d2 = TO[T[i2][j2]][d2];
                             used[i2][j2][d2] = true;
                             i2 += di[d2];
                             j2 += dj[d2];
@@ -381,29 +439,171 @@ struct Solver {
         return ls[0] * ls[1];
     }
 
-    pair<int, double> compute_score(const Output& out) const {
-        int tiles[N][N];
-        memcpy(tiles, input.T, sizeof(int) * N * N);
-        for (int i = 0; i < N; i++) {
-            for (int j = 0; j < N; j++) {
-                for (int k = 0; k < out.R[i][j]; k++) {
-                    tiles[i][j] = ROTATE[tiles[i][j]];
+    pair<bool, int> calc_len(int i, int j, int d) const { 
+        // マス (i, j) "に" d 方向から侵入する
+        // (サイクルかどうか？, 長さ) を返す
+        if (i < 0 || j < 0 || i >= N || j >= N) return { false, 0 };
+        if (TO[T[i][j]][d] == -1) return { false, 0 };
+        int i2 = i, j2 = j, d2 = d, length = 0;
+        while (!(i == i2 && j == j2 && d == d2)) {
+            if (TO[T[i2][j2]][d2] == -1) return { false, length };
+            length++;
+            d2 = TO[T[i2][j2]][d2];
+            i2 += di[d2];
+            j2 += dj[d2];
+            if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) return { false, length };
+            d2 = (d2 + 2) & 3;
+        }
+        return { true, length };
+    }
+
+    tuple<int, int, vector<int>, vector<int>> calc_diff(int i, int j, int dr) {
+        // (i,j) の回転数を +dr した際のスコア差分
+        vector<vector<int>> dirs = {{0},{0},{2},{2},{0,2},{0,2},{0},{1}}; // 調べるべき方向
+        bool used[N][N][4] = {};
+
+        vector<int> erase_lens, add_lens;
+        int prev_cycle_score = 0;
+        if (cycle_map.rbegin()->second >= 2) {
+            int x = cycle_map.rbegin()->first;
+            prev_cycle_score = x * x;
+        }
+        else if (cycle_map.size() >= 2) {
+            auto it = cycle_map.rbegin();
+            int x = it->first;
+            ++it;
+            int y = it->first;
+            prev_cycle_score = x * y;
+        }
+        int fragment_diff = 0;
+
+        for (int d : dirs[T[i][j]]) {
+            int i2 = i, j2 = j, d2 = d, length = 0;
+            bool cycle = true, first = true;
+            while(!used[i2][j2][d2]) {
+                if (TO[T[i2][j2]][d2] == -1) {
+                    cycle = false;
+                    break;
+                }
+                length++;
+                used[i2][j2][d2] = true;
+                d2 = TO[T[i2][j2]][d2];
+                used[i2][j2][d2] = true;
+                i2 += di[d2];
+                j2 += dj[d2];
+                if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) {
+                    cycle = false;
+                    break;
+                }
+                d2 = (d2 + 2) & 3;
+                first = false;
+            };
+            if (cycle) {
+                erase_lens.push_back(length);
+                cycle_map[length]--;
+                if (!cycle_map[length]) cycle_map.erase(length);
+            }
+            else {
+                d2 = (d + 2) & 3; i2 = i - di[d2]; j2 = j - dj[d2];
+                if (!(i2 < 0 || i2 >= N || j2 < 0 || j2 >= N)) {
+                    while (true) {
+                        if (TO[T[i2][j2]][d2] == -1) break;
+                        length++;
+                        d2 = TO[T[i2][j2]][d2];
+                        i2 += di[d2];
+                        j2 += dj[d2];
+                        if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) break;
+                        d2 = (d2 + 2) & 3;
+                    }
+                    fragment_diff -= length * length;
                 }
             }
         }
-        double fragment_score = 0;
+
+        int pr = R[i][j], pt = T[i][j];
+        R[i][j] = (R[i][j] + dr) & 3;
+        T[i][j] = ROTATE2[dr][T[i][j]];
+
+        for (int d : dirs[T[i][j]]) {
+            int i2 = i, j2 = j, d2 = d, length = 0;
+            bool cycle = true;
+            do {
+                if (TO[T[i2][j2]][d2] == -1) {
+                    cycle = false;
+                    break;
+                }
+                length++;
+                d2 = TO[T[i2][j2]][d2];
+                i2 += di[d2];
+                j2 += dj[d2];
+                if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) {
+                    cycle = false;
+                    break;
+                }
+                d2 = (d2 + 2) & 3;
+            } while (!(i2 == i && j2 == i && d2 == d));
+            if (cycle) {
+                add_lens.push_back(length);
+                cycle_map[length]++;
+            }
+            else {
+                d2 = (d + 2) & 3; i2 = i - di[d2]; j2 = j - dj[d2];
+                if (!(i2 < 0 || i2 >= N || j2 < 0 || j2 >= N)) {
+                    while (true) {
+                        if (TO[T[i2][j2]][d2] == -1) break;
+                        length++;
+                        d2 = TO[T[i2][j2]][d2];
+                        i2 += di[d2];
+                        j2 += dj[d2];
+                        if (i2 < 0 || j2 < 0 || i2 >= N || j2 >= N) break;
+                        d2 = (d2 + 2) & 3;
+                    }
+                    fragment_diff += length * length;
+                }
+            }
+        }
+
+        int now_cycle_score = 0;
+        if (cycle_map.rbegin()->second >= 2) {
+            int x = cycle_map.rbegin()->first;
+            now_cycle_score = x * x;
+        }
+        else if (cycle_map.size() >= 2) {
+            auto it = cycle_map.rbegin();
+            int x = it->first;
+            ++it;
+            int y = it->first;
+            now_cycle_score = x * y;
+        }
+
+        R[i][j] = pr;
+        T[i][j] = pt;
+        
+        for (int x : add_lens) {
+            cycle_map[x]--;
+            if (!cycle_map[x]) cycle_map.erase(x);
+        }
+        for (int x : erase_lens) {
+            cycle_map[x]++;
+        }
+
+        return { now_cycle_score - prev_cycle_score, fragment_diff, erase_lens, add_lens };
+    }
+
+    pair<int, int> compute_score() const {
+        int fragment_score = 0;
         vector<int> ls;
         bool used[N][N][4] = {};
         for (int i = 0; i < N; i++) {
             for (int j = 0; j < N; j++) {
                 for (int d = 0; d < 4; d++) {
-                    if (TO[tiles[i][j]][d] != -1 && !used[i][j][d]) {
+                    if (TO[T[i][j]][d] != -1 && !used[i][j][d]) {
                         int i2 = i, j2 = j, d2 = d, length = 0;
                         while (!used[i2][j2][d2]) {
-                            if (TO[tiles[i2][j2]][d2] == -1) break;
+                            if (TO[T[i2][j2]][d2] == -1) break;
                             length++;
                             used[i2][j2][d2] = true;
-                            d2 = TO[tiles[i2][j2]][d2];
+                            d2 = TO[T[i2][j2]][d2];
                             used[i2][j2][d2] = true;
                             i2 += di[d2];
                             j2 += dj[d2];
@@ -426,49 +626,63 @@ struct Solver {
         return { ls[0] * ls[1], fragment_score };
     }
 
+    string to_str(const Array& arr) const {
+        string res;
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < N; j++) {
+                res += char(arr[i][j] + '0');
+            }
+        }
+        return res;
+    }
+
     std::pair<double, string> solve() {
 
         constexpr int coeff = 100;
 
-        auto [prev_score, prev_frag] = compute_score(output);
+        auto [prev_score, prev_frag] = compute_score();
         int best_score = prev_score;
-        Output best_out = output;
+        Array best_out = R;
 
         auto get_temp = [](double startTemp, double endTemp, double t, double T) {
             return endTemp + (startTemp - endTemp) * (T - t) / T;
         };
 
         int loop = 0;
-        double start_time = timer.elapsed_ms(), now_time, end_time = 1900;
+        double start_time = timer.elapsed_ms(), now_time, end_time = 9900;
         while ((now_time = timer.elapsed_ms()) < end_time) {
-            int i = rnd.next_int(N), j = rnd.next_int(N), r = rnd.next_int(4);
-            if (output.R[i][j] == r) continue;
-            int pr = output.R[i][j];
-            output.R[i][j] = r;
-            auto [score, frag] = compute_score(output);
+            int i = rnd.next_int(N), j = rnd.next_int(N), r = rnd.next_int(3) + 1;
 
-            double diff = (score * coeff + frag) - (prev_score * coeff + prev_frag);
+            auto [score_diff, frag_diff, erase_lens, add_lens] = calc_diff(i, j, r);
+            dump(score_diff, frag_diff, erase_lens, add_lens);
+            double diff = score_diff * coeff + frag_diff;
             double temp = get_temp(50.0, 0.0, now_time - start_time, end_time - start_time);
             double prob = exp(diff / temp);
 
             //if (prev_score * 100 + prev_frag < score * 100 + frag) {
             if (rnd.next_double() < prob) {
-                prev_score = score;
-                prev_frag = frag;
-                if (best_score < score) {
-                    best_score = score;
-                    best_out = output;
-                    //dump(best_score);
+                prev_score += score_diff;
+                prev_frag += frag_diff;
+                for (int x : erase_lens) {
+                    cycle_map[x]--;
+                    if (!cycle_map[x]) cycle_map.erase(x);
                 }
-            }
-            else {
-                output.R[i][j] = pr;
+                for (int x : add_lens) {
+                    cycle_map[x]++;
+                }
+                R[i][j] = (R[i][j] + r) & 3;
+                T[i][j] = ROTATE2[r][T[i][j]];
+                if (best_score < prev_score) {
+                    best_score = prev_score;
+                    best_out = R;
+                    dump(best_score);
+                }
             }
             loop++;
         }
 
-        output = best_out;
-        return { compute_raw_score(output), output.stringify()};
+        R = best_out;
+        return { compute_raw_score(), to_str(R) };
     }
 };
 
@@ -521,7 +735,7 @@ int main(int argc, char** argv) {
 
 #ifdef _MSC_VER
     //batch_test();
-    batch_test(0, 100);
+    batch_test(0, 1);
 #else
     std::istream& in = cin;
     std::ostream& out = cout;
